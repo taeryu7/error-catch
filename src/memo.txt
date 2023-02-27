@@ -1,0 +1,96 @@
+Sentry 연동
+
+componentDidCatch 를 사용해서 앱에서 에러가 발생했을 때 사용자에게 에러가 발생했음을 인지시켜줄 수 는 있지만,
+componentDidCatch 가 실제로 호출되는 일은 서비스에서 없어야되는게 맞다.
+만약에 우리가 놓진 에러가 있다면, 이를 알아내어 예외 처리를 해주어야 한다.
+
+개발할 때는 발견해내지 못했지만, 사용자가 발견하게 되는 그런 오류들이 있다.
+그럴 때는 componentDidCatch 에서 error 와 info 값을 네트워크를 통하여 다른 곳으로 전달을 해주면된다.
+
+이를 위해서 따로 서버를 만드는건 굉장히 번거로운 작업으로, 굉장히 괜찮은 솔루션으로, Sentry 라는 상용서비스가 있다.
+
+sentry 사용법 순서
+1. Sentry 에서 회원가입 및 로그인을 하시고 새 프로젝트를 생성. - 회원가입 과정에서는 팀 이름은 실제로 속해있는 곳이 없다면 아무거나 자유롭게 입력.
+2. React 를 선택 후 프로젝트에 이름을 작성. - Sentry 를 프로젝트에 적용하는 방법이 나온다.
+3. 프로젝트 디렉터리에서 @sentry/browser 를 설치.
+4. 아까 Sentry 페이지에서 나타났던 Instruction 에 나타났던 대로 작업을 진행
+
+import React from 'react';
+import ReactDOM from 'react-dom';
+import './index.css';
+import App from './App';
+import * as Sentry from '@sentry/browser';
+import * as serviceWorker from './serviceWorker';
+
+Sentry.init({
+  dsn: 'https://87fba3b585d940f58806848807325ffb@sentry.io/1493504'
+});
+
+ReactDOM.render(<App />, document.getElementById('root'));
+
+// If you want your app to work offline and load faster, you can change
+// unregister() to register() below. Note this comes with some pitfalls.
+// Learn more about service workers: https://bit.ly/CRA-PWA
+serviceWorker.unregister();
+
+5. Sentry.init() 을 사용 할 때 넣는 dsn 값은 프로젝트마다 다르니, 맞는 dsn값을 넣어주기. - 작업을 완료 후, 리액트 앱을 브라우저에서 새로고침
+6. 에러가 발생 했을 때 Sentry 쪽으로 전달이 되는 것은 개발모드일땐 별도의 작업을 하지 않아도 잘 되지만, 
+나중에 프로젝트를 완성하여 실제 배포를 하게 됐을 때는 componentDidCatch 로 이미 에러를 잡아줬을 경우 Sentry 에게 자동으로 전달이 되지않는다.
+아래 코드를 보고 ErrorBoundary 에서 다음과 같이 처리를 해야한다.
+
+ErrorBoundary.js
+import React, { Component } from 'react';
+import * as Sentry from '@sentry/browser';
+
+class ErrorBoundary extends Component {
+  state = {
+    error: false
+  };
+
+  componentDidCatch(error, info) {
+    console.log('에러가 발생했습니다.');
+    console.log({
+      error,
+      info
+    });
+    this.setState({
+      error: true
+    });
+    if (process.env.NODE_ENV === 'production') {
+      Sentry.captureException(error, { extra: info });
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      return <h1>에러 발생!</h1>;
+    }
+    return this.props.children;
+  }
+}
+
+export default ErrorBoundary;
+
+7. componentDidCatch 에서 process.env.NODE_ENV 값을 조회했는데, 
+이를 통해서 현재 환경이 개발 환경인지 프로덕션 환경인지 (production / development) 확인 할 수 있다.
+
+8. 개발 환경에서는 captureException 을 사용 할 필http://localhost:5000/요가 없으므로 프로덕션에서만 이 작업을 했다.
+
+프로덕션 환경에서 잘 작동하는지 확인하기
+프로덕션 환경에서도 잘 작동하는지 확인하기 위해서는 프로젝트를 빌드를 해야한다.
+프로젝트 디렉터리에서 다음 명령어를 실행해야한다.
+
+$yarn build
+조금 기다리면 결과물이 build 디렉터리에 나타난다.
+build 디렉터리에 있는 파일들을 제공하는 서버를 실행하기 위해서는 다음 명령어를 실행해야한다.
+$ npx serve ./build
+
+serve 는 웹서버를 열어서 특정 디렉터리에 있는 파일을 제공해주는 도구이다.
+http://localhost:5000/ 을 브라우저로 들어가본 뒤, Sentry 에 새로운 항목이 추가됐는지 확인하기.
+위에랑 다르게 에러가 어디서 발생했는지 상세한 정보를 알아보기 쉽지가 않은데, 
+이는 빌드 과정에서 코드가 minify 되면서 이름이 c, Xo, Ui, qa 이런식으로 축소됐기 때문이다.
+만약에 코드 위치를 제대로 파악을 하고 싶다면 이 링크 를 참조 할것. - https://docs.sentry.io/platforms/javascript/sourcemaps/#webpack
+
+Sentry 에서 minified 되지 않은 이름을 보려면 Sourcemap 이란것을 사용해야 하는데, 드를 할 때마다 자동으로 업로드 되도록 설정 할 수 있고,
+직접 업로드 할 수도 있고, 만약에 Sourcemap 파일이 공개 되어 있다면 별도의 설정 없이 바로 minified 되지 않은 이름을 볼 수 있다.
+
